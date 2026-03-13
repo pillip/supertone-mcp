@@ -2,6 +2,9 @@
 
 import base64
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from mcp.types import AudioContent, TextContent
@@ -104,6 +107,11 @@ def resolve_api_key() -> str:
     return key
 
 
+def resolve_voice_id() -> str:
+    """Resolve the default voice ID from environment or constant."""
+    return os.environ.get("SUPERTONE_MCP_VOICE_ID", DEFAULT_VOICE_ID)
+
+
 def resolve_output_mode() -> str:
     """Resolve the output mode from environment or default.
 
@@ -134,6 +142,49 @@ def ensure_output_dir(path: str) -> None:
             "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
             "to a writable location."
         )
+
+
+# --- Autoplay ---
+
+
+def resolve_autoplay() -> bool:
+    """Resolve whether autoplay is enabled from environment.
+
+    Default is True (always autoplay). Set SUPERTONE_MCP_AUTOPLAY=false to disable.
+    """
+    val = os.environ.get("SUPERTONE_MCP_AUTOPLAY", "").lower()
+    if val in ("false", "0", "no"):
+        return False
+    return True
+
+
+def _autoplay(
+    file_path: str | None, audio_bytes: bytes | None, output_format: str
+) -> None:
+    """Play audio via macOS afplay (fire-and-forget, non-blocking)."""
+    if sys.platform != "darwin":
+        return
+    try:
+        if file_path:
+            subprocess.Popen(
+                ["/usr/bin/afplay", file_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        elif audio_bytes:
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=f".{output_format}", delete=False
+            )
+            tmp.write(audio_bytes)
+            tmp.close()
+            subprocess.Popen(
+                f'/usr/bin/afplay "{tmp.name}" && rm -f "{tmp.name}"',
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except OSError:
+        pass
 
 
 # --- Output Formatting ---
@@ -223,7 +274,7 @@ async def text_to_speech(
     depending on the output mode (SUPERTONE_MCP_OUTPUT_MODE env var).
     """
     # Apply defaults
-    voice_id = voice_id or DEFAULT_VOICE_ID
+    voice_id = voice_id or resolve_voice_id()
     language = language or DEFAULT_LANGUAGE
     output_format = output_format or DEFAULT_FORMAT
     model = model or DEFAULT_MODEL
@@ -300,6 +351,10 @@ async def text_to_speech(
         duration = calculate_duration(file_path_str)
     else:
         duration = 0.0
+
+    # Autoplay if enabled
+    if resolve_autoplay():
+        _autoplay(file_path_str, audio_bytes, output_format)
 
     # Format response based on output mode
     if output_mode == OUTPUT_MODE_FILES:

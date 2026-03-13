@@ -16,7 +16,9 @@ mcp = FastMCP("supertone-tts")
         "Output mode is controlled by SUPERTONE_MCP_OUTPUT_MODE env var: "
         '"files" (default) saves to disk and returns file path, '
         '"resources" returns audio data directly (no disk write), '
-        '"both" saves to disk and returns audio data with file path.'
+        '"both" saves to disk and returns audio data with file path. '
+        "Set SUPERTONE_MCP_AUTOPLAY=false to disable auto-play. "
+        "Set SUPERTONE_MCP_VOICE_ID to use a default voice without calling list_voices."
     ),
 )
 async def text_to_speech(

@@ -16,6 +16,7 @@ from supertone_tts_mcp.models import TTSResponse, VoiceInfo
 from mcp.types import AudioContent, TextContent
 
 from supertone_tts_mcp.tools import (
+    _autoplay,
     calculate_duration,
     ensure_output_dir,
     format_tts_metadata,
@@ -23,8 +24,10 @@ from supertone_tts_mcp.tools import (
     format_voice_list,
     list_voices,
     resolve_api_key,
+    resolve_autoplay,
     resolve_output_dir,
     resolve_output_mode,
+    resolve_voice_id,
     text_to_speech,
     validate_language,
     validate_model,
@@ -169,6 +172,73 @@ class TestResolveOutputMode:
         with patch.dict(os.environ, {"SUPERTONE_MCP_OUTPUT_MODE": "invalid"}):
             with pytest.raises(ValueError, match='Invalid output mode: "invalid"'):
                 resolve_output_mode()
+
+
+class TestResolveVoiceId:
+    def test_default_voice(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_voice_id() == "2d5a380030e78fcab0c82a"
+
+    def test_custom_voice_from_env(self):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_VOICE_ID": "my-custom-voice"}):
+            assert resolve_voice_id() == "my-custom-voice"
+
+
+class TestResolveAutoplay:
+    def test_default_is_true(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_autoplay() is True
+
+    @pytest.mark.parametrize("val", ["true", "1", "yes", ""])
+    def test_truthy_values(self, val):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_AUTOPLAY": val}):
+            assert resolve_autoplay() is True
+
+    @pytest.mark.parametrize("val", ["false", "0", "no"])
+    def test_falsy_values(self, val):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_AUTOPLAY": val}):
+            assert resolve_autoplay() is False
+
+    def test_case_insensitive_disable(self):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_AUTOPLAY": "FALSE"}):
+            assert resolve_autoplay() is False
+
+
+class TestAutoplay:
+    def test_calls_afplay_with_file_path(self):
+        with patch("supertone_tts_mcp.tools.sys") as mock_sys, \
+             patch("supertone_tts_mcp.tools.subprocess.Popen") as mock_popen:
+            mock_sys.platform = "darwin"
+            _autoplay("/tmp/test.mp3", None, "mp3")
+            mock_popen.assert_called_once_with(
+                ["/usr/bin/afplay", "/tmp/test.mp3"],
+                stdout=-3,  # subprocess.DEVNULL
+                stderr=-3,
+            )
+
+    def test_resources_mode_creates_temp_file(self):
+        with patch("supertone_tts_mcp.tools.sys") as mock_sys, \
+             patch("supertone_tts_mcp.tools.subprocess.Popen") as mock_popen:
+            mock_sys.platform = "darwin"
+            _autoplay(None, b"\xff\xfb\x90\x00", "mp3")
+            mock_popen.assert_called_once()
+            call_args = mock_popen.call_args
+            assert call_args[1]["shell"] is True
+            assert "afplay" in call_args[0][0]
+            assert ".mp3" in call_args[0][0]
+
+    def test_noop_on_non_darwin(self):
+        with patch("supertone_tts_mcp.tools.sys") as mock_sys, \
+             patch("supertone_tts_mcp.tools.subprocess.Popen") as mock_popen:
+            mock_sys.platform = "linux"
+            _autoplay("/tmp/test.mp3", None, "mp3")
+            mock_popen.assert_not_called()
+
+    def test_oserror_suppressed(self):
+        with patch("supertone_tts_mcp.tools.sys") as mock_sys, \
+             patch("supertone_tts_mcp.tools.subprocess.Popen", side_effect=OSError):
+            mock_sys.platform = "darwin"
+            _autoplay("/tmp/test.mp3", None, "mp3")  # should not raise
 
 
 class TestFormatTtsMetadata:
@@ -334,6 +404,25 @@ class TestTextToSpeechHandler:
             result = await text_to_speech(text="Hello")
 
         assert "Voice: 2d5a380030e78fcab0c82a" in result
+
+    @pytest.mark.asyncio
+    async def test_env_voice_id_used(self, tmp_path):
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "test-key",
+                "SUPERTONE_OUTPUT_DIR": str(tmp_path),
+                "SUPERTONE_MCP_VOICE_ID": "custom-voice-99",
+                "SUPERTONE_MCP_AUTOPLAY": "false",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = _mock_synthesize()
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        assert "Voice: custom-voice-99" in result
 
     @pytest.mark.asyncio
     async def test_default_language(self, tmp_path):
@@ -557,6 +646,48 @@ class TestTextToSpeechHandler:
 
         decoded = base64.b64decode(result[0].data)
         assert decoded == audio_data
+
+    @pytest.mark.asyncio
+    async def test_autoplay_called_when_enabled(self, tmp_path):
+        audio_data = b"\xff\xfb\x90\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_OUTPUT_DIR": str(tmp_path),
+                "SUPERTONE_MCP_AUTOPLAY": "true",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+            patch("supertone_tts_mcp.tools._autoplay") as mock_autoplay,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 2.3))
+            instance.aclose = AsyncMock()
+
+            await text_to_speech(text="Hello")
+
+        mock_autoplay.assert_called_once()
+        call_args = mock_autoplay.call_args
+        assert call_args[0][2] == "mp3"  # output_format
+
+    @pytest.mark.asyncio
+    async def test_autoplay_not_called_when_disabled(self, tmp_path):
+        audio_data = b"\xff\xfb\x90\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_OUTPUT_DIR": str(tmp_path),
+                "SUPERTONE_MCP_AUTOPLAY": "false",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+            patch("supertone_tts_mcp.tools._autoplay") as mock_autoplay,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 2.3))
+            instance.aclose = AsyncMock()
+
+            await text_to_speech(text="Hello")
+
+        mock_autoplay.assert_not_called()
 
 
 class TestListVoicesHandler:
