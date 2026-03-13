@@ -6,7 +6,12 @@ from pathlib import Path
 from mutagen import File as MutagenFile
 
 from supertone_tts_mcp.constants import (
+    DEFAULT_FORMAT,
+    DEFAULT_LANGUAGE,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_PITCH_SHIFT,
+    DEFAULT_SPEED,
+    DEFAULT_VOICE_ID,
     PITCH_SHIFT_MAX,
     PITCH_SHIFT_MIN,
     SPEED_MAX,
@@ -15,7 +20,14 @@ from supertone_tts_mcp.constants import (
     SUPPORTED_LANGUAGES,
     TEXT_MAX_LENGTH,
 )
-from supertone_tts_mcp.models import TTSResponse, VoiceInfo
+from supertone_tts_mcp.exceptions import (
+    SupertoneAuthError,
+    SupertoneConnectionError,
+    SupertoneRateLimitError,
+    SupertoneServerError,
+)
+from supertone_tts_mcp.models import TTSResponse, VoiceInfo, generate_output_path
+from supertone_tts_mcp.supertone_client import SupertoneClient
 
 
 # --- Input Validation ---
@@ -144,3 +156,146 @@ def calculate_duration(file_path: str) -> float:
     if audio is not None and audio.info is not None:
         return round(audio.info.length, 1)
     return 0.0
+
+
+# --- Tool Handlers ---
+
+
+async def text_to_speech(
+    text: str,
+    voice_id: str | None = None,
+    language: str | None = None,
+    output_format: str | None = None,
+    speed: float | None = None,
+    pitch_shift: int | None = None,
+    style: str | None = None,
+) -> str:
+    """Convert text to speech using Supertone TTS API.
+
+    Returns a plain-text response string (never raises to the caller).
+    """
+    # Apply defaults
+    voice_id = voice_id or DEFAULT_VOICE_ID
+    language = language or DEFAULT_LANGUAGE
+    output_format = output_format or DEFAULT_FORMAT
+    speed = speed if speed is not None else DEFAULT_SPEED
+    pitch_shift = pitch_shift if pitch_shift is not None else DEFAULT_PITCH_SHIFT
+
+    # Validate inputs
+    try:
+        api_key = resolve_api_key()
+        validate_text(text)
+        validate_language(language)
+        validate_output_format(output_format)
+        validate_speed(speed)
+        validate_pitch_shift(pitch_shift)
+    except ValueError as e:
+        return str(e)
+
+    # Resolve output directory
+    try:
+        output_dir = resolve_output_dir()
+        ensure_output_dir(output_dir)
+    except ValueError as e:
+        return str(e)
+
+    # Call API
+    client = SupertoneClient(api_key=api_key)
+    try:
+        audio_bytes, _content_type = await client.synthesize(
+            voice_id=voice_id,
+            text=text,
+            language=language,
+            output_format=output_format,
+            speed=speed,
+            pitch_shift=pitch_shift,
+            style=style,
+        )
+    except SupertoneAuthError:
+        return "Authentication failed. Please verify your SUPERTONE_API_KEY."
+    except SupertoneRateLimitError:
+        return "Rate limit exceeded. Please wait and try again."
+    except SupertoneServerError as e:
+        return f"Supertone API server error ({e.status_code}). Please try again later."
+    except SupertoneConnectionError:
+        return "Failed to connect to Supertone API. Please check your network connection."
+    finally:
+        await client.aclose()
+
+    # Save file
+    output_path = generate_output_path(output_dir, output_format)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(audio_bytes)
+    except PermissionError:
+        return (
+            f"Cannot write to output directory: {output_path.parent}. "
+            "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
+            "to a writable location."
+        )
+    except OSError:
+        return "Cannot write audio file. Please check available disk space."
+
+    # Calculate duration
+    duration = calculate_duration(str(output_path))
+
+    # Format response
+    response = TTSResponse(
+        file_path=str(output_path),
+        duration_seconds=duration,
+        voice_id=voice_id,
+        language=language,
+        output_format=output_format,
+    )
+    return format_tts_response(response)
+
+
+async def list_voices(language: str | None = None) -> str:
+    """List available Supertone TTS voices.
+
+    Returns a plain-text response string (never raises to the caller).
+    """
+    # Validate language filter
+    if language is not None:
+        try:
+            validate_language(language)
+        except ValueError as e:
+            return str(e)
+
+    # Resolve API key
+    try:
+        api_key = resolve_api_key()
+    except ValueError as e:
+        return str(e)
+
+    # Call API
+    client = SupertoneClient(api_key=api_key)
+    try:
+        voice_dicts = await client.get_voices()
+    except SupertoneAuthError:
+        return "Authentication failed. Please verify your SUPERTONE_API_KEY."
+    except SupertoneRateLimitError:
+        return "Rate limit exceeded. Please wait and try again."
+    except SupertoneServerError as e:
+        return f"Supertone API server error ({e.status_code}). Please try again later."
+    except SupertoneConnectionError:
+        return "Failed to connect to Supertone API. Please check your network connection."
+    finally:
+        await client.aclose()
+
+    # Convert to VoiceInfo objects
+    voices = [
+        VoiceInfo(
+            voice_id=v["voice_id"],
+            name=v["name"],
+            supported_languages=v["supported_languages"],
+            supported_styles=v["supported_styles"],
+        )
+        for v in voice_dicts
+    ]
+
+    # Filter by language
+    if language is not None:
+        voices = [v for v in voices if language in v.supported_languages]
+
+    return format_voice_list(voices, language_filter=language)
