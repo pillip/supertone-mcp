@@ -13,16 +13,21 @@ from supertone_tts_mcp.exceptions import (
     SupertoneServerError,
 )
 from supertone_tts_mcp.models import TTSResponse, VoiceInfo
+from mcp.types import AudioContent, TextContent
+
 from supertone_tts_mcp.tools import (
     calculate_duration,
     ensure_output_dir,
+    format_tts_metadata,
     format_tts_response,
     format_voice_list,
     list_voices,
     resolve_api_key,
     resolve_output_dir,
+    resolve_output_mode,
     text_to_speech,
     validate_language,
+    validate_model,
     validate_output_format,
     validate_pitch_shift,
     validate_speed,
@@ -35,31 +40,21 @@ class TestValidateText:
         with pytest.raises(ValueError, match="Text must not be empty."):
             validate_text("")
 
-    def test_301_chars(self):
-        text = "a" * 301
-        with pytest.raises(
-            ValueError,
-            match=r"Text exceeds the maximum length of 300 characters \(received: 301\)",
-        ):
-            validate_text(text)
-
-    def test_300_chars_passes(self):
-        validate_text("a" * 300)
+    def test_long_text_passes(self):
+        """SDK handles chunking, so long text should pass validation."""
+        validate_text("a" * 1000)
 
     def test_1_char_passes(self):
         validate_text("a")
 
 
 class TestValidateLanguage:
-    @pytest.mark.parametrize("lang", ["ko", "en", "ja"])
+    @pytest.mark.parametrize("lang", ["ko", "en", "ja", "de", "fr", "es"])
     def test_valid_languages(self, lang):
         validate_language(lang)
 
     def test_invalid_language(self):
-        with pytest.raises(
-            ValueError,
-            match=r'Invalid language: "zz"\. Supported languages: ko, en, ja\.',
-        ):
+        with pytest.raises(ValueError, match=r'Invalid language: "zz"'):
             validate_language("zz")
 
 
@@ -97,23 +92,33 @@ class TestValidateSpeed:
 
 
 class TestValidatePitchShift:
-    @pytest.mark.parametrize("pitch", [-12, 0, 12])
+    @pytest.mark.parametrize("pitch", [-24, 0, 24])
     def test_valid_pitches(self, pitch):
         validate_pitch_shift(pitch)
 
     def test_too_low(self):
         with pytest.raises(
             ValueError,
-            match=r"Pitch shift must be between -12 and \+12 semitones \(received: -13\)\.",
+            match=r"Pitch shift must be between -24 and \+24 semitones \(received: -25\)\.",
         ):
-            validate_pitch_shift(-13)
+            validate_pitch_shift(-25)
 
     def test_too_high(self):
         with pytest.raises(
             ValueError,
-            match=r"Pitch shift must be between -12 and \+12 semitones \(received: 13\)\.",
+            match=r"Pitch shift must be between -24 and \+24 semitones \(received: 25\)\.",
         ):
-            validate_pitch_shift(13)
+            validate_pitch_shift(25)
+
+
+class TestValidateModel:
+    @pytest.mark.parametrize("model", ["sona_speech_1", "sona_speech_2_flash"])
+    def test_valid_models(self, model):
+        validate_model(model)
+
+    def test_invalid_model(self):
+        with pytest.raises(ValueError, match=r'Invalid model: "bad_model"'):
+            validate_model("bad_model")
 
 
 class TestResolveApiKey:
@@ -144,6 +149,41 @@ class TestResolveOutputDir:
         with patch.dict(os.environ, {"SUPERTONE_OUTPUT_DIR": "/custom/dir"}):
             result = resolve_output_dir()
             assert "custom" in result
+
+
+class TestResolveOutputMode:
+    def test_default_is_files(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert resolve_output_mode() == "files"
+
+    @pytest.mark.parametrize("mode", ["files", "resources", "both"])
+    def test_valid_modes(self, mode):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_OUTPUT_MODE": mode}):
+            assert resolve_output_mode() == mode
+
+    def test_case_insensitive(self):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_OUTPUT_MODE": "RESOURCES"}):
+            assert resolve_output_mode() == "resources"
+
+    def test_invalid_mode_raises(self):
+        with patch.dict(os.environ, {"SUPERTONE_MCP_OUTPUT_MODE": "invalid"}):
+            with pytest.raises(ValueError, match='Invalid output mode: "invalid"'):
+                resolve_output_mode()
+
+
+class TestFormatTtsMetadata:
+    def test_without_file_path(self):
+        result = format_tts_metadata(
+            duration=2.3, voice_id="v1", language="ko", output_format="mp3"
+        )
+        assert result == "Duration: 2.3s | Voice: v1 | Language: ko | Format: mp3"
+
+    def test_with_file_path(self):
+        result = format_tts_metadata(
+            duration=1.0, voice_id="v1", language="en", output_format="wav",
+            file_path="/tmp/out.wav",
+        )
+        assert result == "Saved: /tmp/out.wav | Duration: 1.0s | Voice: v1 | Language: en | Format: wav"
 
 
 class TestFormatTtsResponse:
@@ -198,7 +238,6 @@ class TestFormatVoiceList:
 
 class TestCalculateDuration:
     def test_returns_float_for_valid_file(self, tmp_path):
-        # Create a minimal valid MP3 file is complex, so we mock mutagen
         mock_audio = MagicMock()
         mock_audio.info.length = 2.345
 
@@ -213,12 +252,12 @@ class TestCalculateDuration:
         assert duration == 0.0
 
 
-# --- Tool Handler Tests (ISSUE-005, ISSUE-006) ---
+# --- Tool Handler Tests ---
 
 
 def _mock_synthesize():
     """Create a mock for SupertoneClient.synthesize that returns audio bytes."""
-    return AsyncMock(return_value=(b"\xff\xfb\x90\x00" * 10, "audio/mpeg"))
+    return AsyncMock(return_value=(b"\xff\xfb\x90\x00" * 10, "audio/mpeg", 2.3))
 
 
 def _mock_get_voices(voices=None):
@@ -235,13 +274,9 @@ def _mock_get_voices(voices=None):
 class TestTextToSpeechHandler:
     @pytest.mark.asyncio
     async def test_happy_path(self, tmp_path):
-        mock_duration = MagicMock()
-        mock_duration.info.length = 2.345
-
         with (
             patch.dict(os.environ, {"SUPERTONE_API_KEY": "test-key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
             patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
-            patch("supertone_tts_mcp.tools.MutagenFile", return_value=mock_duration),
         ):
             instance = MockClient.return_value
             instance.synthesize = _mock_synthesize()
@@ -254,9 +289,24 @@ class TestTextToSpeechHandler:
         assert str(tmp_path) in result
 
     @pytest.mark.asyncio
-    async def test_default_voice_id(self, tmp_path):
+    async def test_uses_api_duration(self, tmp_path):
+        """Duration from API header should be used instead of mutagen."""
+        with (
+            patch.dict(os.environ, {"SUPERTONE_API_KEY": "test-key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(b"\xff" * 10, "audio/mpeg", 5.7))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        assert "Duration: 5.7 seconds" in result
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_mutagen_when_no_api_duration(self, tmp_path):
         mock_duration = MagicMock()
-        mock_duration.info.length = 1.0
+        mock_duration.info.length = 3.456
 
         with (
             patch.dict(os.environ, {"SUPERTONE_API_KEY": "test-key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
@@ -264,22 +314,32 @@ class TestTextToSpeechHandler:
             patch("supertone_tts_mcp.tools.MutagenFile", return_value=mock_duration),
         ):
             instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(b"\xff" * 10, "audio/mpeg", None))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        assert "Duration: 3.5 seconds" in result
+
+    @pytest.mark.asyncio
+    async def test_default_voice_id(self, tmp_path):
+        with (
+            patch.dict(os.environ, {"SUPERTONE_API_KEY": "test-key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
             instance.synthesize = _mock_synthesize()
             instance.aclose = AsyncMock()
 
             result = await text_to_speech(text="Hello")
 
-        assert "Voice: TBD" in result
+        assert "Voice: 2d5a380030e78fcab0c82a" in result
 
     @pytest.mark.asyncio
     async def test_default_language(self, tmp_path):
-        mock_duration = MagicMock()
-        mock_duration.info.length = 1.0
-
         with (
             patch.dict(os.environ, {"SUPERTONE_API_KEY": "test-key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
             patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
-            patch("supertone_tts_mcp.tools.MutagenFile", return_value=mock_duration),
         ):
             instance = MockClient.return_value
             instance.synthesize = _mock_synthesize()
@@ -360,21 +420,17 @@ class TestTextToSpeechHandler:
     @pytest.mark.asyncio
     async def test_file_written_with_correct_bytes(self, tmp_path):
         audio_data = b"\xff\xfb\x90\x00" * 10
-        mock_duration = MagicMock()
-        mock_duration.info.length = 1.0
 
         with (
             patch.dict(os.environ, {"SUPERTONE_API_KEY": "key", "SUPERTONE_OUTPUT_DIR": str(tmp_path)}),
             patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
-            patch("supertone_tts_mcp.tools.MutagenFile", return_value=mock_duration),
         ):
             instance = MockClient.return_value
-            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg"))
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 1.0))
             instance.aclose = AsyncMock()
 
             result = await text_to_speech(text="Hello")
 
-        # Extract file path from result
         file_path = result.split("Audio file saved: ")[1].split("\n")[0]
         assert Path(file_path).read_bytes() == audio_data
 
@@ -383,6 +439,124 @@ class TestTextToSpeechHandler:
         with patch.dict(os.environ, {}, clear=True):
             result = await text_to_speech(text="Hello")
         assert "SUPERTONE_API_KEY environment variable is not set" in result
+
+    @pytest.mark.asyncio
+    async def test_resources_mode_returns_audio_content(self):
+        audio_data = b"\xff\xfb\x90\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_MCP_OUTPUT_MODE": "resources",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 2.3))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert isinstance(result[0], AudioContent)
+        assert result[0].mimeType == "audio/mpeg"
+        assert isinstance(result[1], TextContent)
+        assert "Duration: 2.3s" in result[1].text
+        assert "Saved:" not in result[1].text
+
+    @pytest.mark.asyncio
+    async def test_resources_mode_no_file_written(self, tmp_path):
+        audio_data = b"\xff\xfb\x90\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_MCP_OUTPUT_MODE": "resources",
+                "SUPERTONE_OUTPUT_DIR": str(tmp_path),
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 1.0))
+            instance.aclose = AsyncMock()
+
+            await text_to_speech(text="Hello")
+
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_both_mode_returns_audio_and_saves_file(self, tmp_path):
+        audio_data = b"\xff\xfb\x90\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_MCP_OUTPUT_MODE": "both",
+                "SUPERTONE_OUTPUT_DIR": str(tmp_path),
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 3.0))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert isinstance(result[0], AudioContent)
+        assert isinstance(result[1], TextContent)
+        assert "Saved:" in result[1].text
+        assert "Duration: 3.0s" in result[1].text
+        # Verify file was written
+        files = list(tmp_path.iterdir())
+        assert len(files) == 1
+        assert files[0].read_bytes() == audio_data
+
+    @pytest.mark.asyncio
+    async def test_resources_mode_wav_mime_type(self):
+        audio_data = b"\x00" * 10
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_MCP_OUTPUT_MODE": "resources",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/wav", 1.0))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello", output_format="wav")
+
+        assert result[0].mimeType == "audio/wav"
+
+    @pytest.mark.asyncio
+    async def test_invalid_output_mode_returns_error(self):
+        with patch.dict(os.environ, {
+            "SUPERTONE_API_KEY": "key",
+            "SUPERTONE_MCP_OUTPUT_MODE": "invalid",
+        }):
+            result = await text_to_speech(text="Hello")
+        assert 'Invalid output mode: "invalid"' in result
+
+    @pytest.mark.asyncio
+    async def test_resources_mode_base64_encoding(self):
+        import base64
+        audio_data = b"\xff\xfb\x90\x00" * 5
+        with (
+            patch.dict(os.environ, {
+                "SUPERTONE_API_KEY": "key",
+                "SUPERTONE_MCP_OUTPUT_MODE": "resources",
+            }),
+            patch("supertone_tts_mcp.tools.SupertoneClient") as MockClient,
+        ):
+            instance = MockClient.return_value
+            instance.synthesize = AsyncMock(return_value=(audio_data, "audio/mpeg", 1.0))
+            instance.aclose = AsyncMock()
+
+            result = await text_to_speech(text="Hello")
+
+        decoded = base64.b64decode(result[0].data)
+        assert decoded == audio_data
 
 
 class TestListVoicesHandler:

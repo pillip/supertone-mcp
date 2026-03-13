@@ -9,17 +9,18 @@
 
 | ID | Title | Priority | Estimate | Depends-On |
 |----|-------|----------|----------|------------|
-| ISSUE-001 | Scaffold project with uv, pyproject.toml, and src layout | P0 | 0.5d | none |
-| ISSUE-002 | Define domain types, constants, and exception hierarchy | P0 | 0.5d | ISSUE-001 |
-| ISSUE-003 | Implement SupertoneClient with synthesize and get_voices methods | P0 | 1d | ISSUE-002 |
-| ISSUE-004 | Implement input validation and output formatting in tools module | P0 | 1d | ISSUE-002 |
-| ISSUE-005 | Implement text_to_speech tool handler | P1 | 1d | ISSUE-003, ISSUE-004 |
-| ISSUE-006 | Implement list_voices tool handler | P1 | 0.5d | ISSUE-003, ISSUE-004 |
-| ISSUE-007 | Implement MCP server entry point and tool registration | P1 | 1d | ISSUE-005, ISSUE-006 |
-| ISSUE-008 | Configure PyPI packaging and console entry point | P1 | 0.5d | ISSUE-007 |
-| ISSUE-009 | Set up GitHub Actions CI pipeline | P1 | 0.5d | ISSUE-001 |
-| ISSUE-010 | Write README and MCP client configuration docs | P2 | 0.5d | ISSUE-007 |
-| ISSUE-011 | Create server.json and register on MCP Registry and PulseMCP | P2 | 0.5d | ISSUE-008 |
+| ISSUE-001 | Scaffold project with uv, pyproject.toml, and src layout | P0 | 0.5d | none | done |
+| ISSUE-002 | Define domain types, constants, and exception hierarchy | P0 | 0.5d | ISSUE-001 | done |
+| ISSUE-003 | Implement SupertoneClient with synthesize and get_voices methods | P0 | 1d | ISSUE-002 | done |
+| ISSUE-004 | Implement input validation and output formatting in tools module | P0 | 1d | ISSUE-002 | done |
+| ISSUE-005 | Implement text_to_speech tool handler | P1 | 1d | ISSUE-003, ISSUE-004 | done |
+| ISSUE-006 | Implement list_voices tool handler | P1 | 0.5d | ISSUE-003, ISSUE-004 | done |
+| ISSUE-007 | Implement MCP server entry point and tool registration | P1 | 1d | ISSUE-005, ISSUE-006 | done |
+| ISSUE-008 | Configure PyPI packaging and console entry point | P1 | 0.5d | ISSUE-007 | done |
+| ISSUE-009 | Set up GitHub Actions CI pipeline | P1 | 0.5d | ISSUE-001 | done |
+| ISSUE-010 | Write README and MCP client configuration docs | P2 | 0.5d | ISSUE-007 | done |
+| ISSUE-011 | Create server.json and register on MCP Registry and PulseMCP | P2 | 0.5d | ISSUE-008 | backlog |
+| ISSUE-012 | ElevenLabs-style audio output modes (files/resources/both) | P1 | 0.5d | ISSUE-005 | done |
 
 ---
 
@@ -562,6 +563,57 @@ Remove server.json, contact MCP Registry to delist if needed.
 
 ---
 
+### ISSUE-012: ElevenLabs-style audio output modes (files/resources/both)
+- Track: product
+- PRD-Ref: FR-001
+- Priority: P1
+- Estimate: 0.5d
+- Status: done
+- Owner:
+- Branch:
+- GH-Issue:
+- PR:
+- Depends-On: ISSUE-005
+
+#### Goal
+LLM 클라이언트(Claude Desktop, Cursor 등)가 오디오를 직접 재생할 수 있도록, ElevenLabs MCP처럼 3가지 출력 모드를 지원한다. 환경변수 `SUPERTONE_MCP_OUTPUT_MODE`로 제어한다.
+
+#### Scope (In/Out)
+- In: `constants.py`에 출력 모드 상수 추가, `tools.py`에 `resolve_output_mode()` / `format_tts_metadata()` 추가, `text_to_speech()` 반환 타입을 `str | list`로 변경하여 `AudioContent` + `TextContent` 반환 지원, `server.py` tool description 업데이트, 테스트 추가
+- Out: MCP 클라이언트 측 재생 구현
+
+#### Output Modes
+
+| Mode | Behavior | Return Type |
+|------|----------|-------------|
+| `files` (default) | 디스크 저장, 경로 반환 | `str` (TextContent) |
+| `resources` | 디스크 저장 없음, 오디오 데이터 직접 반환 | `list` — AudioContent + TextContent(메타) |
+| `both` | 디스크 저장 + 오디오 데이터 반환 | `list` — AudioContent + TextContent(경로+메타) |
+
+#### Acceptance Criteria (DoD)
+- [x] Given `SUPERTONE_MCP_OUTPUT_MODE` is unset or `"files"`, when `text_to_speech()` is called, then behavior is identical to before (disk save + text response)
+- [x] Given `SUPERTONE_MCP_OUTPUT_MODE=resources`, when `text_to_speech()` is called, then no file is written to disk and `[AudioContent, TextContent]` is returned
+- [x] Given `SUPERTONE_MCP_OUTPUT_MODE=both`, when `text_to_speech()` is called, then a file is saved to disk and `[AudioContent, TextContent]` is returned with file path in metadata
+- [x] Given an invalid output mode, when `text_to_speech()` is called, then a validation error string is returned
+- [x] Given `resources` mode with `output_format="wav"`, when the result is inspected, then `AudioContent.mimeType` is `"audio/wav"`
+- [x] Given `resources` mode, when the AudioContent data is base64-decoded, then it matches the original audio bytes
+
+#### Implementation Notes
+- MCP SDK의 `AudioContent` 타입 사용 (`from mcp.types import AudioContent, TextContent`)
+- `resolve_output_mode()`는 환경변수를 읽고 소문자로 변환 후 검증
+- `format_tts_metadata()`는 `"Duration: 2.3s | Voice: v1 | Language: ko | Format: mp3"` 형태의 간결한 메타 텍스트 생성
+- `files` 모드 외에는 `output_dir` resolve/create를 건너뜀
+
+#### Tests
+- [x] `TestResolveOutputMode`: default, valid modes, case-insensitive, invalid mode
+- [x] `TestFormatTtsMetadata`: with/without file path
+- [x] `TestTextToSpeechHandler`: resources mode returns AudioContent, no file written, both mode saves + returns AudioContent, WAV mime type, invalid mode error, base64 encoding correctness
+
+#### Rollback
+Revert changes to constants.py, tools.py, server.py, test_tools.py, test_server.py.
+
+---
+
 ## Dependency Graph
 
 ```
@@ -574,6 +626,8 @@ ISSUE-001 (Scaffold)
   |     +-- ISSUE-004 (Validation/Formatting)  [can parallel with ISSUE-003]
   |           |
   |           +-- ISSUE-005 (text_to_speech handler)  [needs 003 + 004]
+  |           |     |
+  |           |     +-- ISSUE-012 (Audio output modes)  [needs 005]
   |           |     |
   |           +-- ISSUE-006 (list_voices handler)  [needs 003 + 004, can parallel with 005]
   |                 |

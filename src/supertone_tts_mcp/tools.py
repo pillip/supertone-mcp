@@ -1,24 +1,32 @@
 """MCP tool handlers, input validation, and output formatting."""
 
+import base64
 import os
 from pathlib import Path
 
+from mcp.types import AudioContent, TextContent
 from mutagen import File as MutagenFile
 
 from supertone_tts_mcp.constants import (
     DEFAULT_FORMAT,
     DEFAULT_LANGUAGE,
+    DEFAULT_MODEL,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_OUTPUT_MODE,
     DEFAULT_PITCH_SHIFT,
     DEFAULT_SPEED,
     DEFAULT_VOICE_ID,
+    OUTPUT_MODE_BOTH,
+    OUTPUT_MODE_FILES,
+    OUTPUT_MODE_RESOURCES,
     PITCH_SHIFT_MAX,
     PITCH_SHIFT_MIN,
     SPEED_MAX,
     SPEED_MIN,
     SUPPORTED_FORMATS,
     SUPPORTED_LANGUAGES,
-    TEXT_MAX_LENGTH,
+    SUPPORTED_MODELS,
+    VALID_OUTPUT_MODES,
 )
 from supertone_tts_mcp.exceptions import (
     SupertoneAuthError,
@@ -37,18 +45,14 @@ def validate_text(text: str) -> None:
     """Validate text input for TTS."""
     if not text:
         raise ValueError("Text must not be empty.")
-    if len(text) > TEXT_MAX_LENGTH:
-        raise ValueError(
-            f"Text exceeds the maximum length of {TEXT_MAX_LENGTH} characters "
-            f"(received: {len(text)}). Please shorten or split the text manually."
-        )
 
 
 def validate_language(language: str) -> None:
     """Validate language code."""
     if language not in SUPPORTED_LANGUAGES:
         raise ValueError(
-            f'Invalid language: "{language}". Supported languages: ko, en, ja.'
+            f'Invalid language: "{language}". '
+            f"Supported languages: {', '.join(SUPPORTED_LANGUAGES)}."
         )
 
 
@@ -77,6 +81,15 @@ def validate_pitch_shift(pitch_shift: int) -> None:
         )
 
 
+def validate_model(model: str) -> None:
+    """Validate model parameter."""
+    if model not in SUPPORTED_MODELS:
+        raise ValueError(
+            f'Invalid model: "{model}". '
+            f"Supported models: {', '.join(SUPPORTED_MODELS)}."
+        )
+
+
 # --- Configuration Resolution ---
 
 
@@ -89,6 +102,20 @@ def resolve_api_key() -> str:
             "Please configure it in your MCP client settings."
         )
     return key
+
+
+def resolve_output_mode() -> str:
+    """Resolve the output mode from environment or default.
+
+    Valid modes: "files", "resources", "both".
+    """
+    mode = os.environ.get("SUPERTONE_MCP_OUTPUT_MODE", DEFAULT_OUTPUT_MODE).lower()
+    if mode not in VALID_OUTPUT_MODES:
+        raise ValueError(
+            f'Invalid output mode: "{mode}". '
+            f"Valid modes: {', '.join(VALID_OUTPUT_MODES)}."
+        )
+    return mode
 
 
 def resolve_output_dir() -> str:
@@ -121,6 +148,25 @@ def format_tts_response(response: TTSResponse) -> str:
         f"Language: {response.language}\n"
         f"Format: {response.output_format}"
     )
+
+
+def format_tts_metadata(
+    duration: float,
+    voice_id: str,
+    language: str,
+    output_format: str,
+    file_path: str | None = None,
+) -> str:
+    """Format TTS metadata as concise text for resources/both modes."""
+    parts = [
+        f"Duration: {duration}s",
+        f"Voice: {voice_id}",
+        f"Language: {language}",
+        f"Format: {output_format}",
+    ]
+    if file_path:
+        parts.insert(0, f"Saved: {file_path}")
+    return " | ".join(parts)
 
 
 def format_voice_list(
@@ -166,47 +212,55 @@ async def text_to_speech(
     voice_id: str | None = None,
     language: str | None = None,
     output_format: str | None = None,
+    model: str | None = None,
     speed: float | None = None,
     pitch_shift: int | None = None,
     style: str | None = None,
-) -> str:
+) -> str | list:
     """Convert text to speech using Supertone TTS API.
 
-    Returns a plain-text response string (never raises to the caller).
+    Returns a plain-text response string or a list of Content objects
+    depending on the output mode (SUPERTONE_MCP_OUTPUT_MODE env var).
     """
     # Apply defaults
     voice_id = voice_id or DEFAULT_VOICE_ID
     language = language or DEFAULT_LANGUAGE
     output_format = output_format or DEFAULT_FORMAT
+    model = model or DEFAULT_MODEL
     speed = speed if speed is not None else DEFAULT_SPEED
     pitch_shift = pitch_shift if pitch_shift is not None else DEFAULT_PITCH_SHIFT
 
     # Validate inputs
     try:
         api_key = resolve_api_key()
+        output_mode = resolve_output_mode()
         validate_text(text)
         validate_language(language)
         validate_output_format(output_format)
+        validate_model(model)
         validate_speed(speed)
         validate_pitch_shift(pitch_shift)
     except ValueError as e:
         return str(e)
 
-    # Resolve output directory
-    try:
-        output_dir = resolve_output_dir()
-        ensure_output_dir(output_dir)
-    except ValueError as e:
-        return str(e)
+    # Resolve output directory (only needed for files/both modes)
+    needs_file = output_mode in (OUTPUT_MODE_FILES, OUTPUT_MODE_BOTH)
+    if needs_file:
+        try:
+            output_dir = resolve_output_dir()
+            ensure_output_dir(output_dir)
+        except ValueError as e:
+            return str(e)
 
     # Call API
     client = SupertoneClient(api_key=api_key)
     try:
-        audio_bytes, _content_type = await client.synthesize(
+        audio_bytes, _content_type, api_duration = await client.synthesize(
             voice_id=voice_id,
             text=text,
             language=language,
             output_format=output_format,
+            model=model,
             speed=speed,
             pitch_shift=pitch_shift,
             style=style,
@@ -222,32 +276,56 @@ async def text_to_speech(
     finally:
         await client.aclose()
 
-    # Save file
-    output_path = generate_output_path(output_dir, output_format)
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(audio_bytes)
-    except PermissionError:
-        return (
-            f"Cannot write to output directory: {output_path.parent}. "
-            "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
-            "to a writable location."
+    # Save file (files/both modes only)
+    file_path_str: str | None = None
+    if needs_file:
+        output_path = generate_output_path(output_dir, output_format)
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(audio_bytes)
+        except PermissionError:
+            return (
+                f"Cannot write to output directory: {output_path.parent}. "
+                "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
+                "to a writable location."
+            )
+        except OSError:
+            return "Cannot write audio file. Please check available disk space."
+        file_path_str = str(output_path)
+
+    # Get duration: prefer API header, fall back to mutagen
+    if api_duration is not None:
+        duration = round(api_duration, 1)
+    elif file_path_str:
+        duration = calculate_duration(file_path_str)
+    else:
+        duration = 0.0
+
+    # Format response based on output mode
+    if output_mode == OUTPUT_MODE_FILES:
+        response = TTSResponse(
+            file_path=file_path_str,
+            duration_seconds=duration,
+            voice_id=voice_id,
+            language=language,
+            output_format=output_format,
         )
-    except OSError:
-        return "Cannot write audio file. Please check available disk space."
+        return format_tts_response(response)
 
-    # Calculate duration
-    duration = calculate_duration(str(output_path))
-
-    # Format response
-    response = TTSResponse(
-        file_path=str(output_path),
-        duration_seconds=duration,
+    # resources or both mode: return AudioContent + TextContent
+    mime_type = "audio/mpeg" if output_format == "mp3" else "audio/wav"
+    audio_base64 = base64.b64encode(audio_bytes).decode()
+    meta_text = format_tts_metadata(
+        duration=duration,
         voice_id=voice_id,
         language=language,
         output_format=output_format,
+        file_path=file_path_str,
     )
-    return format_tts_response(response)
+    return [
+        AudioContent(type="audio", data=audio_base64, mimeType=mime_type),
+        TextContent(type="text", text=meta_text),
+    ]
 
 
 async def list_voices(language: str | None = None) -> str:

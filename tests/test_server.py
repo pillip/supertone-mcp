@@ -1,6 +1,5 @@
 """Tests for MCP server entry point and tool registration (ISSUE-007)."""
 
-import importlib
 import pathlib
 
 import pytest
@@ -26,9 +25,12 @@ class TestToolRegistration:
         tool = mcp._tool_manager._tools["text_to_speech"]
         expected = (
             "Convert text to speech using Supertone TTS API. "
-            "Saves the audio file locally and returns the file path and duration. "
-            "Supports Korean, English, and Japanese. "
-            "Maximum 300 characters per call."
+            "Supports 23 languages including Korean, English, and Japanese. "
+            "Long text is automatically split into chunks and processed. "
+            "Output mode is controlled by SUPERTONE_MCP_OUTPUT_MODE env var: "
+            '"files" (default) saves to disk and returns file path, '
+            '"resources" returns audio data directly (no disk write), '
+            '"both" saves to disk and returns audio data with file path.'
         )
         assert tool.description == expected
 
@@ -51,6 +53,11 @@ class TestToolRegistration:
         schema = tool.parameters
         assert "text" in schema.get("required", [])
 
+    def test_text_to_speech_has_model_parameter(self):
+        tool = mcp._tool_manager._tools["text_to_speech"]
+        schema = tool.parameters
+        assert "model" in schema["properties"]
+
     def test_list_voices_language_is_optional(self):
         tool = mcp._tool_manager._tools["list_voices"]
         schema = tool.parameters
@@ -66,7 +73,6 @@ class TestMainFunction:
 
 class TestMainModule:
     def test_main_module_exists(self):
-        import pathlib
         main_path = pathlib.Path(__file__).parent.parent / "src" / "supertone_tts_mcp" / "__main__.py"
         assert main_path.exists()
 
