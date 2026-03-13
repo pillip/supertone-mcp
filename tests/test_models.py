@@ -8,6 +8,7 @@ import pytest
 from supertone_tts_mcp.constants import (
     DEFAULT_FORMAT,
     DEFAULT_LANGUAGE,
+    DEFAULT_MODEL,
     DEFAULT_PITCH_SHIFT,
     DEFAULT_SPEED,
     DEFAULT_VOICE_ID,
@@ -18,6 +19,7 @@ from supertone_tts_mcp.constants import (
     SPEED_MIN,
     SUPPORTED_FORMATS,
     SUPPORTED_LANGUAGES,
+    SUPPORTED_MODELS,
     SUPERTONE_BASE_URL,
     TEXT_MAX_LENGTH,
 )
@@ -44,6 +46,7 @@ class TestTTSRequest:
             voice_id="v1",
             language="ko",
             output_format="mp3",
+            model="sona_speech_2_flash",
             speed=1.0,
             pitch_shift=0,
             style=None,
@@ -52,6 +55,7 @@ class TestTTSRequest:
         assert req.voice_id == "v1"
         assert req.language == "ko"
         assert req.output_format == "mp3"
+        assert req.model == "sona_speech_2_flash"
         assert req.speed == 1.0
         assert req.pitch_shift == 0
         assert req.style is None
@@ -62,6 +66,7 @@ class TestTTSRequest:
             voice_id="v1",
             language="ko",
             output_format="mp3",
+            model="sona_speech_2_flash",
             speed=1.0,
             pitch_shift=0,
             style=None,
@@ -75,6 +80,7 @@ class TestTTSRequest:
             voice_id="v1",
             language="en",
             output_format="wav",
+            model="sona_speech_1",
             speed=1.5,
             pitch_shift=-3,
             style="happy",
@@ -129,27 +135,35 @@ class TestConstants:
         assert SPEED_MAX == 2.0
 
     def test_pitch_shift_range(self):
-        assert PITCH_SHIFT_MIN == -12
-        assert PITCH_SHIFT_MAX == 12
+        assert PITCH_SHIFT_MIN == -24
+        assert PITCH_SHIFT_MAX == 24
 
     def test_supported_languages(self):
-        assert SUPPORTED_LANGUAGES == ["ko", "en", "ja"]
+        assert "ko" in SUPPORTED_LANGUAGES
+        assert "en" in SUPPORTED_LANGUAGES
+        assert "ja" in SUPPORTED_LANGUAGES
+        assert len(SUPPORTED_LANGUAGES) == 23
 
     def test_supported_formats(self):
         assert SUPPORTED_FORMATS == ["mp3", "wav"]
 
+    def test_supported_models(self):
+        assert "sona_speech_2_flash" in SUPPORTED_MODELS
+        assert "sona_speech_1" in SUPPORTED_MODELS
+
     def test_defaults(self):
         assert DEFAULT_LANGUAGE == "ko"
         assert DEFAULT_FORMAT == "mp3"
+        assert DEFAULT_MODEL == "sona_speech_2_flash"
         assert DEFAULT_SPEED == 1.0
         assert DEFAULT_PITCH_SHIFT == 0
-        assert DEFAULT_VOICE_ID == "TBD"
+        assert DEFAULT_VOICE_ID == "2d5a380030e78fcab0c82a"
 
     def test_http_timeout(self):
         assert HTTP_TIMEOUT == 30.0
 
     def test_base_url(self):
-        assert SUPERTONE_BASE_URL == "https://api.supertoneapi.com"
+        assert SUPERTONE_BASE_URL == "https://supertoneapi.com"
 
 
 class TestGenerateOutputPath:

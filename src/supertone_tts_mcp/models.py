@@ -15,6 +15,7 @@ class TTSRequest:
     voice_id: str
     language: str
     output_format: str
+    model: str
     speed: float
     pitch_shift: int
     style: str | None
@@ -50,19 +51,26 @@ class AppConfig:
     base_url: str
 
 
-class SynthesizeRequestBody(TypedDict):
+class VoiceSettingsBody(TypedDict, total=False):
+    """voice_settings object nested in the synthesize request."""
+
+    pitch_shift: int
+    speed: float
+
+
+class SynthesizeRequestBody(TypedDict, total=False):
     """Request body for the Supertone synthesize API."""
 
     text: str
     language: str
     output_format: str
-    speed: float
-    pitch_shift: int
-    style: NotRequired[str]
+    model: str
+    style: str
+    voice_settings: VoiceSettingsBody
 
 
 class VoiceDict(TypedDict):
-    """Voice entry from the Supertone API response."""
+    """Voice entry from the Supertone API response (mapped from raw API)."""
 
     voice_id: str
     name: str

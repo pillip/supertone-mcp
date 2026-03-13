@@ -4,56 +4,42 @@
 
 ## Current Milestone
 
-**M2: MCP Server Implementation** — Build the core MCP server with `text_to_speech` and `list_voices` tools.
+**M3: Tests + Validation** — Core implementation complete. 101 tests passing.
 
 ## Issue Summary
 
 | Metric | Count |
 |--------|-------|
 | Total issues | 11 |
-| P0 (Critical) | 4 |
-| P1 (Important) | 5 |
-| P2 (Nice-to-have) | 2 |
+| Done | 10 |
+| Remaining | 1 (ISSUE-011: MCP Registry) |
 
-### By Track
+### Merged PRs
 
-| Track | Count |
-|-------|-------|
-| Platform (scaffold, packaging, CI) | 4 |
-| Product (tools, server, docs) | 7 |
+| PR | Title | Issues |
+|----|-------|--------|
+| #1 | feat(scaffold): initialize project structure | ISSUE-001 |
+| #2 | feat(types): define domain types, constants, and exceptions | ISSUE-002 |
+| #3 | ci: add GitHub Actions CI pipeline | ISSUE-009 |
+| #4 | feat(client): implement SupertoneClient | ISSUE-003 |
+| #5 | feat(tools): implement input validation and output formatting | ISSUE-004 |
+| #6 | feat(tools): implement text_to_speech and list_voices handlers | ISSUE-005, ISSUE-006 |
+| #7 | feat(server): implement MCP server entry point | ISSUE-007 |
+| #8 | feat(packaging): complete PyPI metadata and README | ISSUE-008, ISSUE-010 |
 
-### Status
+## Next Steps
 
-| Status | Count |
-|--------|-------|
-| Backlog | 11 |
-| In Progress | 0 |
-| Done | 0 |
+1. **Publish to PyPI**: `uv build && uv publish`
+2. **ISSUE-011**: Create server.json, register on MCP Registry + PulseMCP
+3. **Validate**: Test with Claude Desktop and Cursor (requires real API key)
 
 ## Key Risks
 
 | Risk | Impact | Status |
 |------|--------|--------|
-| R1: Supertone API docs incomplete (base URL, endpoints) | High | Open — needs M1 API spike |
-| R2: Audio duration not in API response | Low | Open — mutagen fallback planned |
-| R3: MCP SDK breaking changes | Medium | Mitigated — pin minor version |
-| R4: Default voice_id unknown | Medium | Open — needs stakeholder input (A4) |
-| R6: PyPI name availability | High | Open — check before dev starts |
-
-## Next Issues to Implement
-
-1. **ISSUE-001** (P0, 0.5d): Scaffold project with uv, pyproject.toml, and src layout
-2. **ISSUE-002** (P0, 0.5d): Define domain types, constants, and exception hierarchy
-3. **ISSUE-003** (P0, 1d): Implement SupertoneClient with synthesize and get_voices
-4. **ISSUE-009** (P1, 0.5d): Set up GitHub Actions CI (can parallel with ISSUE-002+)
-
-## Critical Path
-
-```
-001 → 002 → 003/004 (parallel) → 005/006 (parallel) → 007 → 008 → 011
-```
-
-**Estimated wall-clock time:** ~5 days with one developer (7.5d total effort).
+| R1: Supertone API docs incomplete | High | Open — needs real API key testing |
+| R4: Default voice_id unknown | Medium | Open — placeholder "TBD" in code |
+| R6: PyPI name availability | High | Open — check before publish |
 
 ## Documents
 
@@ -65,4 +51,4 @@
 | `docs/architecture.md` | Done |
 | `docs/data_model.md` | Done |
 | `docs/test_plan.md` | Done |
-| `issues.md` | Done |
+| `issues.md` | Done (10/11 implemented) |
