@@ -5,14 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from supertone.errors.forbiddenerrorresponse import ForbiddenErrorResponse
 from supertone.errors.internalservererrorresponse import InternalServerErrorResponse
 from supertone.errors.no_response_error import NoResponseError
 from supertone.errors.toomanyrequestserrorresponse import TooManyRequestsErrorResponse
 from supertone.errors.unauthorizederrorresponse import UnauthorizedErrorResponse
 from supertone.models import GetAPICharacterResponseData
-
 from supertone_tts_mcp.exceptions import (
     SupertoneAuthError,
     SupertoneConnectionError,
@@ -86,12 +84,18 @@ class TestSynthesize:
         httpx_resp = _make_httpx_response(content=audio_data)
         sdk_resp = _make_create_speech_response(httpx_resp)
 
-        client._sdk.text_to_speech.create_speech_async = AsyncMock(return_value=sdk_resp)
+        client._sdk.text_to_speech.create_speech_async = AsyncMock(
+            return_value=sdk_resp
+        )
 
         result_bytes, content_type, duration = await client.synthesize(
-            voice_id="v1", text="Hello", language="en",
-            output_format="mp3", model="sona_speech_2_flash",
-            speed=1.0, pitch_shift=0,
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="mp3",
+            model="sona_speech_2_flash",
+            speed=1.0,
+            pitch_shift=0,
         )
 
         assert result_bytes == audio_data
@@ -105,12 +109,18 @@ class TestSynthesize:
             headers={"content-type": "audio/mpeg", "x-audio-length": "3.45"},
         )
         sdk_resp = _make_create_speech_response(httpx_resp)
-        client._sdk.text_to_speech.create_speech_async = AsyncMock(return_value=sdk_resp)
+        client._sdk.text_to_speech.create_speech_async = AsyncMock(
+            return_value=sdk_resp
+        )
 
         _, _, duration = await client.synthesize(
-            voice_id="v1", text="Hello", language="en",
-            output_format="mp3", model="sona_speech_2_flash",
-            speed=1.0, pitch_shift=0,
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="mp3",
+            model="sona_speech_2_flash",
+            speed=1.0,
+            pitch_shift=0,
         )
 
         assert duration == 3.45
@@ -124,12 +134,18 @@ class TestSynthesize:
         body_mock.audio_base64 = encoded
         # Make it not an instance of httpx.Response
         sdk_resp = _make_create_speech_response(body_mock)
-        client._sdk.text_to_speech.create_speech_async = AsyncMock(return_value=sdk_resp)
+        client._sdk.text_to_speech.create_speech_async = AsyncMock(
+            return_value=sdk_resp
+        )
 
         result_bytes, content_type, duration = await client.synthesize(
-            voice_id="v1", text="Hello", language="en",
-            output_format="wav", model="sona_speech_2_flash",
-            speed=1.0, pitch_shift=0,
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="wav",
+            model="sona_speech_2_flash",
+            speed=1.0,
+            pitch_shift=0,
         )
 
         assert result_bytes == audio_data
@@ -140,12 +156,19 @@ class TestSynthesize:
     async def test_passes_correct_params_to_sdk(self, client):
         httpx_resp = _make_httpx_response()
         sdk_resp = _make_create_speech_response(httpx_resp)
-        client._sdk.text_to_speech.create_speech_async = AsyncMock(return_value=sdk_resp)
+        client._sdk.text_to_speech.create_speech_async = AsyncMock(
+            return_value=sdk_resp
+        )
 
         await client.synthesize(
-            voice_id="v1", text="Hello", language="ko",
-            output_format="mp3", model="sona_speech_2_flash",
-            speed=1.5, pitch_shift=-3, style="happy",
+            voice_id="v1",
+            text="Hello",
+            language="ko",
+            output_format="mp3",
+            model="sona_speech_2_flash",
+            speed=1.5,
+            pitch_shift=-3,
+            style="happy",
         )
 
         call_kwargs = client._sdk.text_to_speech.create_speech_async.call_args[1]
@@ -159,12 +182,19 @@ class TestSynthesize:
     async def test_omits_style_when_none(self, client):
         httpx_resp = _make_httpx_response()
         sdk_resp = _make_create_speech_response(httpx_resp)
-        client._sdk.text_to_speech.create_speech_async = AsyncMock(return_value=sdk_resp)
+        client._sdk.text_to_speech.create_speech_async = AsyncMock(
+            return_value=sdk_resp
+        )
 
         await client.synthesize(
-            voice_id="v1", text="Hello", language="en",
-            output_format="mp3", model="sona_speech_2_flash",
-            speed=1.0, pitch_shift=0, style=None,
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="mp3",
+            model="sona_speech_2_flash",
+            speed=1.0,
+            pitch_shift=0,
+            style=None,
         )
 
         call_kwargs = client._sdk.text_to_speech.create_speech_async.call_args[1]
@@ -177,9 +207,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneAuthError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -189,9 +223,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneAuthError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -201,9 +239,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneRateLimitError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -213,9 +255,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneServerError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -225,9 +271,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneConnectionError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -237,9 +287,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneConnectionError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
     @pytest.mark.asyncio
@@ -249,9 +303,13 @@ class TestSynthesize:
         )
         with pytest.raises(SupertoneConnectionError):
             await client.synthesize(
-                voice_id="v1", text="Hello", language="en",
-                output_format="mp3", model="sona_speech_2_flash",
-                speed=1.0, pitch_shift=0,
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_2_flash",
+                speed=1.0,
+                pitch_shift=0,
             )
 
 
@@ -305,6 +363,135 @@ class TestGetVoices:
             await client.get_voices()
 
 
+class TestSynthesizeStream:
+    """Tests for the streaming synthesize_stream method."""
+
+    @pytest.mark.asyncio
+    async def test_yields_chunks_from_httpx_stream(self, client):
+        """Streaming response yields audio chunks."""
+        chunks = [b"\xff\xfb" * 10, b"\x90\x00" * 10]
+
+        async def mock_aiter_bytes():
+            for c in chunks:
+                yield c
+
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.aiter_bytes = mock_aiter_bytes
+
+        stream_resp = MagicMock()
+        stream_resp.result = mock_resp
+
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            return_value=stream_resp
+        )
+
+        received = []
+        async for chunk in client.synthesize_stream(
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="mp3",
+            model="sona_speech_1",
+            speed=1.0,
+            pitch_shift=0,
+        ):
+            received.append(chunk)
+
+        assert received == chunks
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_raises_auth_error(self, client):
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            side_effect=_sdk_error(UnauthorizedErrorResponse)
+        )
+        with pytest.raises(SupertoneAuthError):
+            async for _ in client.synthesize_stream(
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_1",
+                speed=1.0,
+                pitch_shift=0,
+            ):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_raises(self, client):
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            side_effect=_sdk_error(TooManyRequestsErrorResponse)
+        )
+        with pytest.raises(SupertoneRateLimitError):
+            async for _ in client.synthesize_stream(
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_1",
+                speed=1.0,
+                pitch_shift=0,
+            ):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_server_error_raises(self, client):
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            side_effect=_sdk_error(InternalServerErrorResponse)
+        )
+        with pytest.raises(SupertoneServerError):
+            async for _ in client.synthesize_stream(
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_1",
+                speed=1.0,
+                pitch_shift=0,
+            ):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_connection_error_raises(self, client):
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            side_effect=httpx.ConnectError("refused")
+        )
+        with pytest.raises(SupertoneConnectionError):
+            async for _ in client.synthesize_stream(
+                voice_id="v1",
+                text="Hello",
+                language="en",
+                output_format="mp3",
+                model="sona_speech_1",
+                speed=1.0,
+                pitch_shift=0,
+            ):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_string_result_yields_bytes(self, client):
+        """NDJSON string result is encoded to bytes."""
+        stream_resp = MagicMock()
+        stream_resp.result = "ndjson-data"
+
+        client._sdk.text_to_speech.stream_speech_async = AsyncMock(
+            return_value=stream_resp
+        )
+
+        received = []
+        async for chunk in client.synthesize_stream(
+            voice_id="v1",
+            text="Hello",
+            language="en",
+            output_format="mp3",
+            model="sona_speech_1",
+            speed=1.0,
+            pitch_shift=0,
+        ):
+            received.append(chunk)
+
+        assert received == [b"ndjson-data"]
+
+
 class TestAclose:
     @pytest.mark.asyncio
     async def test_closes_sdk_client(self, client):
@@ -315,7 +502,6 @@ class TestAclose:
 
     @pytest.mark.asyncio
     async def test_no_error_when_no_internal_client(self, client):
-        # SDK may not expose _client; aclose should not raise
         if hasattr(client._sdk, "_client"):
             del client._sdk._client
         await client.aclose()

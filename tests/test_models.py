@@ -4,7 +4,6 @@ import dataclasses
 import re
 
 import pytest
-
 from supertone_tts_mcp.constants import (
     DEFAULT_FORMAT,
     DEFAULT_LANGUAGE,
@@ -17,10 +16,10 @@ from supertone_tts_mcp.constants import (
     PITCH_SHIFT_MIN,
     SPEED_MAX,
     SPEED_MIN,
+    SUPERTONE_BASE_URL,
     SUPPORTED_FORMATS,
     SUPPORTED_LANGUAGES,
     SUPPORTED_MODELS,
-    SUPERTONE_BASE_URL,
     TEXT_MAX_LENGTH,
 )
 from supertone_tts_mcp.exceptions import (
@@ -154,7 +153,7 @@ class TestConstants:
     def test_defaults(self):
         assert DEFAULT_LANGUAGE == "ko"
         assert DEFAULT_FORMAT == "mp3"
-        assert DEFAULT_MODEL == "sona_speech_2_flash"
+        assert DEFAULT_MODEL == "sona_speech_1"
         assert DEFAULT_SPEED == 1.0
         assert DEFAULT_PITCH_SHIFT == 0
         assert DEFAULT_VOICE_ID == "2d5a380030e78fcab0c82a"
