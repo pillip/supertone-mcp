@@ -358,8 +358,6 @@ async def text_to_speech(
         if output_path is not None:
             file_path_str = str(output_path)
 
-        audio_bytes = memory_buffer.getvalue()
-
     except SupertoneAuthError:
         return "Authentication failed. Please verify your SUPERTONE_API_KEY."
     except SupertoneRateLimitError:
@@ -387,15 +385,13 @@ async def text_to_speech(
     finally:
         await client.aclose()
 
-    # If we only wrote to file (files mode), read bytes for duration calculation
-    if not collect_in_memory and file_path_str:
-        audio_bytes = Path(file_path_str).read_bytes()
-
-    # Calculate duration from completed file or audio bytes
+    # Calculate duration from completed file
     if file_path_str:
         duration = calculate_duration(file_path_str)
     else:
         duration = 0.0
+
+    audio_bytes = memory_buffer.getvalue() if collect_in_memory else None
 
     # Autoplay after streaming completes
     if resolve_autoplay():

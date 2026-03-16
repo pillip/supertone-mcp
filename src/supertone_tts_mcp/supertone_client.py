@@ -197,23 +197,16 @@ class SupertoneClient:
                     page_size=100,
                     next_page_token=next_page_token,
                 )
-            except (UnauthorizedErrorResponse, ForbiddenErrorResponse):
-                raise SupertoneAuthError()
-            except TooManyRequestsErrorResponse:
-                raise SupertoneRateLimitError()
-            except InternalServerErrorResponse as exc:
-                status = (
-                    exc.raw_response.status_code
-                    if hasattr(exc, "raw_response")
-                    else 500
-                )
-                raise SupertoneServerError(status) from exc
-            except NoResponseError as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
-            except httpx.ConnectError as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
-            except httpx.TimeoutException as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
+            except (
+                UnauthorizedErrorResponse,
+                ForbiddenErrorResponse,
+                TooManyRequestsErrorResponse,
+                InternalServerErrorResponse,
+                NoResponseError,
+                httpx.ConnectError,
+                httpx.TimeoutException,
+            ) as exc:
+                _handle_sdk_errors(exc)
 
             for item in response.items:
                 voice: VoiceDict = {
