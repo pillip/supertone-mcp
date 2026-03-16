@@ -17,7 +17,8 @@ mcp = FastMCP("supertone-tts")
         "or convert any writing into spoken audio. "
         "Supports 23 languages including Korean, English, and Japanese. "
         "Audio is automatically played back on macOS. "
-        "Call list_voices first to find the best voice and style for the task."
+        "A default voice is already configured -- just call this tool directly. "
+        "Only call list_voices if the user explicitly asks to change or browse voices."
     ),
 )
 async def text_to_speech(

@@ -178,13 +178,13 @@ class SupertoneClient:
             _handle_sdk_errors(exc)
 
         result = response.result
-        if isinstance(result, httpx.Response):
+        if hasattr(result, "aiter_bytes"):
             async for chunk in result.aiter_bytes():
                 yield chunk
+        elif isinstance(result, str):
+            yield result.encode("utf-8")
         else:
-            # NDJSON string response -- not expected for audio streaming,
-            # but handle gracefully by encoding the string as bytes
-            yield result.encode("utf-8") if isinstance(result, str) else result
+            yield result
 
     async def get_voices(self) -> list[VoiceDict]:
         """Fetch all available voices from the Supertone API (handles pagination)."""
