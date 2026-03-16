@@ -34,14 +34,16 @@ async def text_to_speech(
     """Convert text to speech using Supertone TTS API.
 
     Args:
-        text: Text to convert to speech. Required. Long text is automatically split into chunks.
+        text: Text to convert to speech. Required.
+            Long text is automatically split into chunks.
         voice_id: Voice identifier. Use list_voices to see available options.
             If omitted, a default Korean voice is used.
         language: Language code: "ko" (Korean, default), "en" (English),
             "ja" (Japanese), and 20+ more languages.
         output_format: Audio format: "mp3" (default) or "wav".
-        model: TTS model: "sona_speech_2_flash" (default), "sona_speech_1",
-            "sona_speech_2", "sona_speech_2t", "supertonic_api_1".
+        model: TTS model: "sona_speech_1" (default),
+            "sona_speech_2", "sona_speech_2_flash",
+            "sona_speech_2t", "supertonic_api_1".
         speed: Playback speed multiplier. Range: 0.5 to 2.0. Default: 1.0.
         pitch_shift: Pitch adjustment in semitones. Range: -24 to +24.
             Default: 0.

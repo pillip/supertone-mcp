@@ -1,6 +1,7 @@
 """MCP tool handlers, input validation, and output formatting."""
 
 import base64
+import io
 import os
 import subprocess
 import sys
@@ -39,7 +40,6 @@ from supertone_tts_mcp.exceptions import (
 )
 from supertone_tts_mcp.models import TTSResponse, VoiceInfo, generate_output_path
 from supertone_tts_mcp.supertone_client import SupertoneClient
-
 
 # --- Input Validation ---
 
@@ -172,9 +172,7 @@ def _autoplay(
                 stderr=subprocess.DEVNULL,
             )
         elif audio_bytes:
-            tmp = tempfile.NamedTemporaryFile(
-                suffix=f".{output_format}", delete=False
-            )
+            tmp = tempfile.NamedTemporaryFile(suffix=f".{output_format}", delete=False)
             tmp.write(audio_bytes)
             tmp.close()
             subprocess.Popen(
@@ -249,9 +247,12 @@ def format_voice_list(
 
 def calculate_duration(file_path: str) -> float:
     """Calculate the duration of an audio file in seconds using mutagen."""
-    audio = MutagenFile(file_path)
-    if audio is not None and audio.info is not None:
-        return round(audio.info.length, 1)
+    try:
+        audio = MutagenFile(file_path)
+        if audio is not None and audio.info is not None:
+            return round(audio.info.length, 1)
+    except Exception:
+        pass
     return 0.0
 
 
@@ -303,56 +304,96 @@ async def text_to_speech(
         except ValueError as e:
             return str(e)
 
-    # Call API
+    # Stream audio from SDK
     client = SupertoneClient(api_key=api_key)
+    file_path_str: str | None = None
+    output_path: Path | None = None
+
     try:
-        audio_bytes, _content_type, api_duration = await client.synthesize(
-            voice_id=voice_id,
-            text=text,
-            language=language,
-            output_format=output_format,
-            model=model,
-            speed=speed,
-            pitch_shift=pitch_shift,
-            style=style,
-        )
+        # Prepare file output path if needed
+        if needs_file:
+            output_path = generate_output_path(output_dir, output_format)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Stream chunks: write to file and/or collect in memory
+        memory_buffer = io.BytesIO()
+        collect_in_memory = output_mode in (OUTPUT_MODE_RESOURCES, OUTPUT_MODE_BOTH)
+        file_handle = None
+
+        try:
+            if output_path is not None:
+                file_handle = open(output_path, "wb")
+
+            async for chunk in client.synthesize_stream(
+                voice_id=voice_id,
+                text=text,
+                language=language,
+                output_format=output_format,
+                model=model,
+                speed=speed,
+                pitch_shift=pitch_shift,
+                style=style,
+            ):
+                if file_handle is not None:
+                    file_handle.write(chunk)
+                if collect_in_memory:
+                    memory_buffer.write(chunk)
+
+        except (
+            SupertoneAuthError,
+            SupertoneRateLimitError,
+            SupertoneServerError,
+            SupertoneConnectionError,
+        ):
+            raise
+        except Exception as exc:
+            # Unexpected error mid-stream: clean up partial file
+            if output_path is not None and output_path.exists():
+                output_path.unlink(missing_ok=True)
+            return f"Streaming error: {exc}"
+        finally:
+            if file_handle is not None:
+                file_handle.close()
+
+        if output_path is not None:
+            file_path_str = str(output_path)
+
     except SupertoneAuthError:
         return "Authentication failed. Please verify your SUPERTONE_API_KEY."
     except SupertoneRateLimitError:
         return "Rate limit exceeded. Please wait and try again."
     except SupertoneServerError as e:
+        # Clean up partial file on API error
+        if output_path is not None and output_path.exists():
+            output_path.unlink(missing_ok=True)
         return f"Supertone API server error ({e.status_code}). Please try again later."
     except SupertoneConnectionError:
-        return "Failed to connect to Supertone API. Please check your network connection."
+        # Clean up partial file on connection error
+        if output_path is not None and output_path.exists():
+            output_path.unlink(missing_ok=True)
+        return (
+            "Failed to connect to Supertone API. Please check your network connection."
+        )
+    except PermissionError:
+        return (
+            f"Cannot write to output directory: {output_path.parent}. "
+            "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
+            "to a writable location."
+        )
+    except OSError:
+        return "Cannot write audio file. Please check available disk space."
     finally:
         await client.aclose()
 
-    # Save file (files/both modes only)
-    file_path_str: str | None = None
-    if needs_file:
-        output_path = generate_output_path(output_dir, output_format)
-        try:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(audio_bytes)
-        except PermissionError:
-            return (
-                f"Cannot write to output directory: {output_path.parent}. "
-                "Please check directory permissions or set SUPERTONE_OUTPUT_DIR "
-                "to a writable location."
-            )
-        except OSError:
-            return "Cannot write audio file. Please check available disk space."
-        file_path_str = str(output_path)
-
-    # Get duration: prefer API header, fall back to mutagen
-    if api_duration is not None:
-        duration = round(api_duration, 1)
-    elif file_path_str:
+    # Calculate duration from completed file
+    if file_path_str:
         duration = calculate_duration(file_path_str)
     else:
         duration = 0.0
 
-    # Autoplay if enabled
+    audio_bytes = memory_buffer.getvalue() if collect_in_memory else None
+
+    # Autoplay after streaming completes
     if resolve_autoplay():
         _autoplay(file_path_str, audio_bytes, output_format)
 
@@ -412,7 +453,9 @@ async def list_voices(language: str | None = None) -> str:
     except SupertoneServerError as e:
         return f"Supertone API server error ({e.status_code}). Please try again later."
     except SupertoneConnectionError:
-        return "Failed to connect to Supertone API. Please check your network connection."
+        return (
+            "Failed to connect to Supertone API. Please check your network connection."
+        )
     finally:
         await client.aclose()
 

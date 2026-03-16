@@ -1,6 +1,7 @@
 """SDK wrapper for the Supertone TTS API."""
 
 import base64
+from collections.abc import AsyncIterator
 
 import httpx
 from supertone import Supertone, models
@@ -11,7 +12,6 @@ from supertone.errors.toomanyrequestserrorresponse import TooManyRequestsErrorRe
 from supertone.errors.unauthorizederrorresponse import UnauthorizedErrorResponse
 
 from supertone_tts_mcp.exceptions import (
-    SupertoneAPIError,
     SupertoneAuthError,
     SupertoneConnectionError,
     SupertoneRateLimitError,
@@ -38,6 +38,24 @@ _FORMAT_MAP = {
 }
 
 
+def _handle_sdk_errors(exc: Exception) -> None:
+    """Map SDK exceptions to domain exceptions. Always raises."""
+    if isinstance(exc, (UnauthorizedErrorResponse, ForbiddenErrorResponse)):
+        raise SupertoneAuthError() from exc
+    if isinstance(exc, TooManyRequestsErrorResponse):
+        raise SupertoneRateLimitError() from exc
+    if isinstance(exc, InternalServerErrorResponse):
+        status = exc.raw_response.status_code if hasattr(exc, "raw_response") else 500
+        raise SupertoneServerError(status) from exc
+    if isinstance(exc, NoResponseError):
+        raise SupertoneConnectionError(str(exc)) from exc
+    if isinstance(exc, httpx.ConnectError):
+        raise SupertoneConnectionError(str(exc)) from exc
+    if isinstance(exc, httpx.TimeoutException):
+        raise SupertoneConnectionError(str(exc)) from exc
+    raise exc
+
+
 class SupertoneClient:
     """Async client for the Supertone TTS API using the official SDK."""
 
@@ -55,7 +73,7 @@ class SupertoneClient:
         pitch_shift: int,
         style: str | None = None,
     ) -> tuple[bytes, str, float | None]:
-        """Synthesize speech using the Supertone SDK.
+        """Synthesize speech using the Supertone SDK (batch mode).
 
         The SDK automatically splits text longer than 300 characters into chunks,
         processes them in parallel, and concatenates the audio.
@@ -81,19 +99,16 @@ class SupertoneClient:
                 voice_settings=voice_settings,
                 style=style,
             )
-        except (UnauthorizedErrorResponse, ForbiddenErrorResponse):
-            raise SupertoneAuthError()
-        except TooManyRequestsErrorResponse:
-            raise SupertoneRateLimitError()
-        except InternalServerErrorResponse as exc:
-            status = exc.raw_response.status_code if hasattr(exc, "raw_response") else 500
-            raise SupertoneServerError(status) from exc
-        except NoResponseError as exc:
-            raise SupertoneConnectionError(str(exc)) from exc
-        except httpx.ConnectError as exc:
-            raise SupertoneConnectionError(str(exc)) from exc
-        except httpx.TimeoutException as exc:
-            raise SupertoneConnectionError(str(exc)) from exc
+        except (
+            UnauthorizedErrorResponse,
+            ForbiddenErrorResponse,
+            TooManyRequestsErrorResponse,
+            InternalServerErrorResponse,
+            NoResponseError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+        ) as exc:
+            _handle_sdk_errors(exc)
 
         # Determine content type
         content_type = f"audio/{output_format}"
@@ -116,6 +131,61 @@ class SupertoneClient:
             audio_bytes = base64.b64decode(result.audio_base64)
             return audio_bytes, content_type, None
 
+    async def synthesize_stream(
+        self,
+        voice_id: str,
+        text: str,
+        language: str,
+        output_format: str,
+        model: str,
+        speed: float,
+        pitch_shift: int,
+        style: str | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Synthesize speech using the Supertone SDK streaming API.
+
+        Yields audio data chunks as they are received from the API.
+        This reduces time-to-first-audio compared to the batch synthesize() method.
+        """
+        lang_enum = _LANGUAGE_MAP[language]
+        model_enum = _MODEL_MAP[model]
+        fmt_enum = _FORMAT_MAP[output_format]
+
+        voice_settings = models.ConvertTextToSpeechParameters(
+            speed=speed,
+            pitch_shift=float(pitch_shift),
+        )
+
+        try:
+            response = await self._sdk.text_to_speech.stream_speech_async(
+                voice_id=voice_id,
+                text=text,
+                language=lang_enum,
+                model=model_enum,
+                output_format=fmt_enum,
+                voice_settings=voice_settings,
+                style=style,
+            )
+        except (
+            UnauthorizedErrorResponse,
+            ForbiddenErrorResponse,
+            TooManyRequestsErrorResponse,
+            InternalServerErrorResponse,
+            NoResponseError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+        ) as exc:
+            _handle_sdk_errors(exc)
+
+        result = response.result
+        if isinstance(result, httpx.Response):
+            async for chunk in result.aiter_bytes():
+                yield chunk
+        else:
+            # NDJSON string response -- not expected for audio streaming,
+            # but handle gracefully by encoding the string as bytes
+            yield result.encode("utf-8") if isinstance(result, str) else result
+
     async def get_voices(self) -> list[VoiceDict]:
         """Fetch all available voices from the Supertone API (handles pagination)."""
         all_voices: list[VoiceDict] = []
@@ -127,19 +197,16 @@ class SupertoneClient:
                     page_size=100,
                     next_page_token=next_page_token,
                 )
-            except (UnauthorizedErrorResponse, ForbiddenErrorResponse):
-                raise SupertoneAuthError()
-            except TooManyRequestsErrorResponse:
-                raise SupertoneRateLimitError()
-            except InternalServerErrorResponse as exc:
-                status = exc.raw_response.status_code if hasattr(exc, "raw_response") else 500
-                raise SupertoneServerError(status) from exc
-            except NoResponseError as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
-            except httpx.ConnectError as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
-            except httpx.TimeoutException as exc:
-                raise SupertoneConnectionError(str(exc)) from exc
+            except (
+                UnauthorizedErrorResponse,
+                ForbiddenErrorResponse,
+                TooManyRequestsErrorResponse,
+                InternalServerErrorResponse,
+                NoResponseError,
+                httpx.ConnectError,
+                httpx.TimeoutException,
+            ) as exc:
+                _handle_sdk_errors(exc)
 
             for item in response.items:
                 voice: VoiceDict = {
