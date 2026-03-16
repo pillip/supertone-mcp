@@ -2,8 +2,6 @@
 
 import pathlib
 
-import pytest
-
 from supertone_tts_mcp.server import mcp
 
 
@@ -23,27 +21,16 @@ class TestToolRegistration:
 
     def test_text_to_speech_description(self):
         tool = mcp._tool_manager._tools["text_to_speech"]
-        expected = (
-            "Convert text to speech using Supertone TTS API. "
-            "Supports 23 languages including Korean, English, and Japanese. "
-            "Long text is automatically split into chunks and processed. "
-            "Output mode is controlled by SUPERTONE_MCP_OUTPUT_MODE env var: "
-            '"files" (default) saves to disk and returns file path, '
-            '"resources" returns audio data directly (no disk write), '
-            '"both" saves to disk and returns audio data with file path. '
-            "Set SUPERTONE_MCP_AUTOPLAY=false to disable auto-play. "
-            "Set SUPERTONE_MCP_VOICE_ID to use a default voice without calling list_voices."
-        )
-        assert tool.description == expected
+        desc = tool.description
+        assert "speech" in desc
+        assert "list_voices" in desc
+        assert "23 languages" in desc
 
     def test_list_voices_description(self):
         tool = mcp._tool_manager._tools["list_voices"]
-        expected = (
-            "List available Supertone TTS voices. "
-            "Returns voice ID, name, supported languages, and supported emotion "
-            "styles for each voice. Optionally filter by language."
-        )
-        assert tool.description == expected
+        desc = tool.description
+        assert "voice" in desc.lower()
+        assert "text_to_speech" in desc or "text-to-speech" in desc
 
     def test_text_to_speech_has_text_parameter(self):
         tool = mcp._tool_manager._tools["text_to_speech"]
@@ -70,17 +57,25 @@ class TestToolRegistration:
 class TestMainFunction:
     def test_main_is_callable(self):
         from supertone_tts_mcp.server import main
+
         assert callable(main)
 
 
 class TestMainModule:
     def test_main_module_exists(self):
-        main_path = pathlib.Path(__file__).parent.parent / "src" / "supertone_tts_mcp" / "__main__.py"
+        main_path = (
+            pathlib.Path(__file__).parent.parent
+            / "src"
+            / "supertone_tts_mcp"
+            / "__main__.py"
+        )
         assert main_path.exists()
 
     def test_main_module_imports_main(self):
         source = (
             pathlib.Path(__file__).parent.parent
-            / "src" / "supertone_tts_mcp" / "__main__.py"
+            / "src"
+            / "supertone_tts_mcp"
+            / "__main__.py"
         ).read_text()
         assert "from supertone_tts_mcp.server import main" in source

@@ -10,15 +10,14 @@ mcp = FastMCP("supertone-tts")
 @mcp.tool(
     name="text_to_speech",
     description=(
-        "Convert text to speech using Supertone TTS API. "
+        "Generate natural-sounding speech audio from text. "
+        "Use this when the user wants to: "
+        "hear text read aloud, create narration or voiceover, "
+        "generate voice audio, preview how text sounds when spoken, "
+        "or convert any writing into spoken audio. "
         "Supports 23 languages including Korean, English, and Japanese. "
-        "Long text is automatically split into chunks and processed. "
-        "Output mode is controlled by SUPERTONE_MCP_OUTPUT_MODE env var: "
-        '"files" (default) saves to disk and returns file path, '
-        '"resources" returns audio data directly (no disk write), '
-        '"both" saves to disk and returns audio data with file path. '
-        "Set SUPERTONE_MCP_AUTOPLAY=false to disable auto-play. "
-        "Set SUPERTONE_MCP_VOICE_ID to use a default voice without calling list_voices."
+        "Audio is automatically played back on macOS. "
+        "Call list_voices first to find the best voice and style for the task."
     ),
 )
 async def text_to_speech(
@@ -31,24 +30,29 @@ async def text_to_speech(
     pitch_shift: int | None = None,
     style: str | None = None,
 ) -> str | list:
-    """Convert text to speech using Supertone TTS API.
+    """Generate natural-sounding speech audio from text.
 
     Args:
-        text: Text to convert to speech. Required.
-            Long text is automatically split into chunks.
-        voice_id: Voice identifier. Use list_voices to see available options.
+        text: The text to speak aloud. Required.
+            Can be a sentence, paragraph, or any text content.
+            Long text is automatically split and processed.
+        voice_id: Voice to use (e.g., "sujin-01", "minho-01").
+            Run list_voices to browse available voices.
             If omitted, a default Korean voice is used.
-        language: Language code: "ko" (Korean, default), "en" (English),
-            "ja" (Japanese), and 20+ more languages.
-        output_format: Audio format: "mp3" (default) or "wav".
-        model: TTS model: "sona_speech_1" (default),
-            "sona_speech_2", "sona_speech_2_flash",
+        language: Language code for the speech output.
+            "ko" (Korean, default), "en" (English), "ja" (Japanese),
+            and 20+ more. Must match the text language for best results.
+        output_format: Audio file format: "mp3" (default) or "wav".
+            Use "wav" for higher quality, "mp3" for smaller files.
+        model: TTS model: "sona_speech_1" (default, streaming),
+            "sona_speech_2", "sona_speech_2_flash" (fastest),
             "sona_speech_2t", "supertonic_api_1".
-        speed: Playback speed multiplier. Range: 0.5 to 2.0. Default: 1.0.
-        pitch_shift: Pitch adjustment in semitones. Range: -24 to +24.
-            Default: 0.
-        style: Emotion style (e.g., "neutral", "happy"). Available styles
-            vary by voice -- use list_voices to check.
+        speed: Speech speed. 0.5 (slow) to 2.0 (fast). Default: 1.0.
+        pitch_shift: Voice pitch adjustment in semitones.
+            -24 (deeper) to +24 (higher). Default: 0.
+        style: Emotion or tone of the voice (e.g., "neutral", "happy",
+            "sad", "angry"). Available styles vary by voice --
+            call list_voices to see what each voice supports.
     """
     return await tools.text_to_speech(
         text=text,
@@ -65,17 +69,21 @@ async def text_to_speech(
 @mcp.tool(
     name="list_voices",
     description=(
-        "List available Supertone TTS voices. "
-        "Returns voice ID, name, supported languages, and supported emotion "
-        "styles for each voice. Optionally filter by language."
+        "Browse available voices for text-to-speech. "
+        "Use this before text_to_speech to find the right voice. "
+        "Shows each voice's name, ID, supported languages, and emotion styles "
+        "(e.g., neutral, happy, sad, angry). "
+        "Use this when the user asks: what voices are available, "
+        "find a voice for a specific language, or pick a voice with a certain style."
     ),
 )
 async def list_voices(language: str | None = None) -> str:
-    """List available Supertone TTS voices.
+    """Browse available voices for text-to-speech.
 
     Args:
-        language: Filter voices by language code (e.g., "ko", "en", "ja").
-            If omitted, all voices are returned.
+        language: Filter by language code to narrow results
+            (e.g., "ko" for Korean voices, "en" for English, "ja" for Japanese).
+            If omitted, all voices across all languages are returned.
     """
     return await tools.list_voices(language=language)
 
