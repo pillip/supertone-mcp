@@ -1,5 +1,17 @@
 # supertone-mcp
 
+<!-- ⚠️ SERVICE DISCONTINUATION NOTICE — paste at the very top of the README, right below the title -->
+
+> [!CAUTION]
+> ## ⚠️ Service Discontinuation Notice
+>
+> **The Supertone API will be permanently shut down on August 31, 2026.**
+> After this date, all API requests will stop being served and this package will no longer work.
+>
+> 👉 For the full timeline, refund policy, and details, see the **[End-of-Life Guide](https://docs.supertoneapi.com/en/docs/sunset)**.
+
+
+
 <!-- mcp-name: io.github.supertone-inc/supertone-mcp -->
 
 A **composable MCP toolkit** for the [Supertone](https://supertone.ai) TTS API. Rather than a single "speak this text" command, it exposes Supertone's SDK as a set of building-block tools — synthesis, voice discovery, preview, duration/credit prediction, usage tracking, and full voice-cloning CRUD — that an LLM assembles to fulfill a request. Works in Claude Desktop, Cursor, or any MCP-compatible client.
